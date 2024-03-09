@@ -1,32 +1,37 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import puppeteer from '@cloudflare/puppeteer';
 
-export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
+interface Env {
+	BROWSER: puppeteer.BrowserWorker;
+	IMAGES_BUCKET: R2Bucket;
 }
 
+const headers = {
+	'Content-Type': 'image/png',
+	'Cache-Control': 'public, max-age=14400',
+};
+
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return new Response('Hello World!');
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		const params = url.searchParams;
+		const title = params.get('title');
+		const description = params.get('description');
+		const key = `${title?.replace(/\W/g, '-')}${description ? `___${description.replace(/\W/g, '-')}` : ''}.png`;
+		const existingImage = await env.IMAGES_BUCKET.get(key);
+
+		if (existingImage) {
+			return new Response(existingImage.body, { status: 200, headers });
+		}
+
+		const browser = await puppeteer.launch(env.BROWSER);
+		const page = await browser.newPage();
+		await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+		await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
+		await page.goto(`https://kevinkipp.com/og-image?${params}`);
+		await page.waitForNetworkIdle();
+		const screenshot = await page.screenshot({ type: 'png' });
+		await browser.close();
+		await env.IMAGES_BUCKET.put(key, screenshot);
+		return new Response(screenshot, { status: 200, headers });
 	},
 };
