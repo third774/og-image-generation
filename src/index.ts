@@ -1,8 +1,11 @@
 import puppeteer from '@cloudflare/puppeteer';
+import * as jose from 'jose';
+import invariant from 'tiny-invariant';
 
 interface Env {
 	BROWSER: puppeteer.BrowserWorker;
 	IMAGES_BUCKET: R2Bucket;
+	JWT_SECRET: string;
 }
 
 const headers = {
@@ -13,14 +16,25 @@ const headers = {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
-		const params = url.searchParams;
-		const title = params.get('title');
-		const description = params.get('description');
+		const secret = new TextEncoder().encode(env.JWT_SECRET);
+		const jwt = url.pathname.split('/')[1];
+		const { payload } = await jose.jwtVerify(jwt, secret);
+
+		invariant(typeof payload.title === 'string');
+		invariant(typeof payload.description === 'string' || typeof payload.description === 'undefined');
+
+		const { title, description } = payload;
+
 		const key = `${title?.replace(/\W/g, '-')}${description ? `___${description.replace(/\W/g, '-')}` : ''}.png`;
 		const existingImage = await env.IMAGES_BUCKET.get(key);
 
 		if (existingImage) {
 			return new Response(existingImage.body, { status: 200, headers });
+		}
+
+		const params = new URLSearchParams({ title });
+		if (description) {
+			params.set('description', description);
 		}
 
 		const browser = await puppeteer.launch(env.BROWSER);
