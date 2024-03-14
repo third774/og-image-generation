@@ -18,38 +18,45 @@ export default {
 		const url = new URL(request.url);
 		const secret = new TextEncoder().encode(env.JWT_SECRET);
 		const jwt = url.pathname.split('/')[1];
+
+		let payload: null | { title: string; description?: string } = null;
+
 		try {
-			const { payload } = await jose.jwtVerify(jwt, secret);
-
-			invariant(typeof payload.title === 'string');
-			invariant(typeof payload.description === 'string' || typeof payload.description === 'undefined');
-
-			const { title, description } = payload;
-
-			const key = `${title?.replace(/\W/g, '-')}${description ? `___${description.replace(/\W/g, '-')}` : ''}.png`;
-			const existingImage = await env.IMAGES_BUCKET.get(key);
-
-			if (existingImage) {
-				return new Response(existingImage.body, { status: 200, headers });
-			}
-
-			const params = new URLSearchParams({ title });
-			if (description) {
-				params.set('description', description);
-			}
-
-			const browser = await puppeteer.launch(env.BROWSER);
-			const page = await browser.newPage();
-			await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-			await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
-			await page.goto(`https://kevinkipp.com/og-image?${params}`);
-			await page.waitForNetworkIdle();
-			const screenshot = await page.screenshot({ type: 'png' });
-			await browser.close();
-			await env.IMAGES_BUCKET.put(key, screenshot);
-			return new Response(screenshot, { status: 200, headers });
+			const decodedJWT = await jose.jwtVerify(jwt, secret);
+			payload = decodedJWT.payload as any;
 		} catch (error) {
 			return new Response('Unauthorized', { status: 401 });
 		}
+
+		try {
+			invariant(typeof payload?.title === 'string');
+			invariant(typeof payload.description === 'string' || typeof payload.description === 'undefined');
+		} catch (error) {
+			return new Response('Bad Request', { status: 400 });
+		}
+
+		const { title, description } = payload;
+		const key = `${title?.replace(/\W/g, '-')}${description ? `___${description.replace(/\W/g, '-')}` : ''}.png`;
+		const existingImage = await env.IMAGES_BUCKET.get(key);
+
+		if (existingImage) {
+			return new Response(existingImage.body, { status: 200, headers });
+		}
+
+		const params = new URLSearchParams({ title });
+		if (description) {
+			params.set('description', description);
+		}
+
+		const browser = await puppeteer.launch(env.BROWSER);
+		const page = await browser.newPage();
+		await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+		await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
+		await page.goto(`https://kevinkipp.com/og-image?${params}`);
+		await page.waitForNetworkIdle();
+		const screenshot = await page.screenshot({ type: 'png' });
+		await browser.close();
+		await env.IMAGES_BUCKET.put(key, screenshot);
+		return new Response(screenshot, { status: 200, headers });
 	},
 };
