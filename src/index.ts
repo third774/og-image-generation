@@ -50,7 +50,7 @@ export default {
 
 		const browser = await puppeteer.launch(env.BROWSER);
 		const page = await browser.newPage();
-		await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+		await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 		await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
 		await page.goto(`https://kevinkipp.com/og-image?${params}`);
 		await page.waitForNetworkIdle();
